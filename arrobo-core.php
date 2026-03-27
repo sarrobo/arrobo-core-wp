@@ -48,8 +48,11 @@ if ( ! defined( 'ARROBO_CO_DISABLE_GUTENBERG' ) ) {
 if ( ! defined( 'ARROBO_CO_FOOTER_URL' ) ) {
 	define( 'ARROBO_CO_FOOTER_URL', 'https://arrobo.ec' );
 }
-if ( ! defined( 'ARROBO_CO_KINSTA_AFFILIATE' ) ) {
-	define( 'ARROBO_CO_KINSTA_AFFILIATE', 'https://kinsta.com/pricing/?kaid=IZVRWVGIWNZT' );
+if ( ! defined( 'ARROBO_CO_HOSTING' ) ) {
+	define( 'ARROBO_CO_HOSTING', 'kinsta' );
+}
+if ( ! defined( 'ARROBO_CO_HOSTING_URL' ) ) {
+	define( 'ARROBO_CO_HOSTING_URL', '' );
 }
 if ( ! defined( 'ARROBO_CO_LOGIN_COLOR_PRIMARY' ) ) {
 	define( 'ARROBO_CO_LOGIN_COLOR_PRIMARY', '#1F123F' );
@@ -59,6 +62,48 @@ if ( ! defined( 'ARROBO_CO_LOGIN_COLOR_SECONDARY' ) ) {
 }
 if ( ! defined( 'ARROBO_CO_LOGIN_COLOR_ACCENT' ) ) {
 	define( 'ARROBO_CO_LOGIN_COLOR_ACCENT', '#E40046' );
+}
+
+// ========================
+// HELPER: Hosting Presets
+// ========================
+
+/**
+ * Get hosting provider name and URL from presets or custom config.
+ *
+ * @return array{name: string, url: string}|false False if hosting is 'none'.
+ */
+function arrobo_co_get_hosting() {
+	$hosting = strtolower( trim( ARROBO_CO_HOSTING ) );
+
+	if ( 'none' === $hosting ) {
+		return false;
+	}
+
+	$presets = array(
+		'kinsta'    => array(
+			'name' => 'Kinsta',
+			'url'  => 'https://kinsta.com/pricing/?kaid=IZVRWVGIWNZT',
+		),
+		'hostinger' => array(
+			'name' => 'Hostinger',
+			'url'  => 'PLACEHOLDER_HOSTINGER_AFFILIATE_LINK',
+		),
+		'siteground' => array(
+			'name' => 'SiteGround',
+			'url'  => 'PLACEHOLDER_SITEGROUND_AFFILIATE_LINK',
+		),
+	);
+
+	if ( isset( $presets[ $hosting ] ) ) {
+		return $presets[ $hosting ];
+	}
+
+	// Custom hosting: use ARROBO_CO_HOSTING as name, ARROBO_CO_HOSTING_URL as link.
+	return array(
+		'name' => ARROBO_CO_HOSTING,
+		'url'  => ARROBO_CO_HOSTING_URL,
+	);
 }
 
 // ========================
@@ -285,11 +330,31 @@ if ( ARROBO_CO_ADMIN_FOOTER ) {
 	add_filter( 'admin_footer_text', 'arrobo_co_admin_footer_text' );
 
 	function arrobo_co_admin_footer_text() {
-		return sprintf(
-			'Gracias por elegir <a href="%s" target="_blank">Arrobo & Co</a> y por alojar tu sitio web con <a href="%s" target="_blank">Kinsta</a>',
-			esc_url( ARROBO_CO_FOOTER_URL ),
-			esc_url( ARROBO_CO_KINSTA_AFFILIATE )
+		$text = sprintf(
+			'Gracias por elegir <a href="%s" target="_blank">Arrobo & Co</a>',
+			esc_url( ARROBO_CO_FOOTER_URL )
 		);
+
+		$hosting = arrobo_co_get_hosting();
+
+		if ( $hosting ) {
+			$hosting_name = esc_html( $hosting['name'] );
+
+			if ( ! empty( $hosting['url'] ) ) {
+				$text .= sprintf(
+					' y por alojar tu sitio web con <a href="%s" target="_blank">%s</a>',
+					esc_url( $hosting['url'] ),
+					$hosting_name
+				);
+			} else {
+				$text .= sprintf(
+					' y por alojar tu sitio web con %s',
+					$hosting_name
+				);
+			}
+		}
+
+		return $text;
 	}
 }
 
