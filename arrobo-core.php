@@ -265,6 +265,9 @@ if ( ARROBO_CO_CLEAN_ADMIN_BAR ) {
 
 	function arrobo_co_clean_admin_bar( $wp_admin_bar ) {
 		$wp_admin_bar->remove_node( 'wp-logo' );
+		$wp_admin_bar->remove_node( 'new-content' );
+		$wp_admin_bar->remove_node( 'elementor_edit_page' );
+		$wp_admin_bar->remove_node( 'jetelements' );
 	}
 }
 
