@@ -87,11 +87,11 @@ function arrobo_co_get_hosting() {
 		),
 		'hostinger' => array(
 			'name' => 'Hostinger',
-			'url'  => 'PLACEHOLDER_HOSTINGER_AFFILIATE_LINK',
+			'url'  => 'https://www.hostg.xyz/aff_c?offer_id=815&aff_id=207603',
 		),
 		'siteground' => array(
 			'name' => 'SiteGround',
-			'url'  => 'PLACEHOLDER_SITEGROUND_AFFILIATE_LINK',
+			'url'  => 'https://www.siteground.com/go/ftrpx8e00g',
 		),
 	);
 
