@@ -49,7 +49,7 @@ if ( ! defined( 'ARROBO_CO_FOOTER_URL' ) ) {
 	define( 'ARROBO_CO_FOOTER_URL', 'https://arrobo.ec' );
 }
 if ( ! defined( 'ARROBO_CO_KINSTA_AFFILIATE' ) ) {
-	define( 'ARROBO_CO_KINSTA_AFFILIATE', 'PLACEHOLDER_KINSTA_AFFILIATE_LINK' );
+	define( 'ARROBO_CO_KINSTA_AFFILIATE', 'https://kinsta.com/pricing/?kaid=IZVRWVGIWNZT' );
 }
 if ( ! defined( 'ARROBO_CO_LOGIN_COLOR_PRIMARY' ) ) {
 	define( 'ARROBO_CO_LOGIN_COLOR_PRIMARY', '#1F123F' );
