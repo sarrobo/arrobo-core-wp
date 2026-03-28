@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Arrobo & Co Core
  * Description: MU-Plugin modular — Branding, seguridad y optimización WP by Arrobo & Co
- * Version:     1.0.0
+ * Version:     2.0.0
  * Author:      Arrobo & Co
  * Author URI:  https://arrobo.ec
  *
@@ -14,6 +14,12 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+// ========================
+// VERSION
+// ========================
+
+define( 'ARROBO_CO_VERSION', '2.0.0' );
 
 // ========================
 // MODULE SWITCHES
@@ -40,6 +46,15 @@ if ( ! defined( 'ARROBO_CO_WP_CLEANUP' ) ) {
 if ( ! defined( 'ARROBO_CO_DISABLE_GUTENBERG' ) ) {
 	define( 'ARROBO_CO_DISABLE_GUTENBERG', true );
 }
+if ( ! defined( 'ARROBO_CO_DISABLE_COMMENTS' ) ) {
+	define( 'ARROBO_CO_DISABLE_COMMENTS', true );
+}
+if ( ! defined( 'ARROBO_CO_WP_PERFORMANCE' ) ) {
+	define( 'ARROBO_CO_WP_PERFORMANCE', true );
+}
+if ( ! defined( 'ARROBO_CO_SELF_UPDATE' ) ) {
+	define( 'ARROBO_CO_SELF_UPDATE', true );
+}
 
 // ========================
 // CONFIGURATION
@@ -63,10 +78,37 @@ if ( ! defined( 'ARROBO_CO_LOGIN_COLOR_SECONDARY' ) ) {
 if ( ! defined( 'ARROBO_CO_LOGIN_COLOR_ACCENT' ) ) {
 	define( 'ARROBO_CO_LOGIN_COLOR_ACCENT', '#E40046' );
 }
+if ( ! defined( 'ARROBO_CO_UPDATE_URL' ) ) {
+	define( 'ARROBO_CO_UPDATE_URL', 'https://arrobo.ec/agency/update.json' );
+}
+if ( ! defined( 'ARROBO_CO_UPDATE_FREQUENCY' ) ) {
+	define( 'ARROBO_CO_UPDATE_FREQUENCY', 30 );
+}
+if ( ! defined( 'ARROBO_CO_HEARTBEAT_BEHAVIOR' ) ) {
+	define( 'ARROBO_CO_HEARTBEAT_BEHAVIOR', 'only_editing' );
+}
+if ( ! defined( 'ARROBO_CO_HEARTBEAT_FREQUENCY' ) ) {
+	define( 'ARROBO_CO_HEARTBEAT_FREQUENCY', 60 );
+}
+if ( ! defined( 'ARROBO_CO_POST_REVISIONS' ) ) {
+	define( 'ARROBO_CO_POST_REVISIONS', 3 );
+}
+if ( ! defined( 'ARROBO_CO_AUTOSAVE_INTERVAL' ) ) {
+	define( 'ARROBO_CO_AUTOSAVE_INTERVAL', 300 );
+}
 
 // ========================
-// HELPER: Hosting Presets
+// HELPERS
 // ========================
+
+/**
+ * Check if Perfmatters plugin is active.
+ *
+ * @return bool
+ */
+function arrobo_co_perfmatters_active() {
+	return defined( 'PERFMATTERS_VERSION' );
+}
 
 /**
  * Get hosting provider name and URL from presets or custom config.
@@ -81,11 +123,11 @@ function arrobo_co_get_hosting() {
 	}
 
 	$presets = array(
-		'kinsta'    => array(
+		'kinsta'     => array(
 			'name' => 'Kinsta',
 			'url'  => 'https://kinsta.com/pricing/?kaid=IZVRWVGIWNZT',
 		),
-		'hostinger' => array(
+		'hostinger'  => array(
 			'name' => 'Hostinger',
 			'url'  => 'https://www.hostg.xyz/aff_c?offer_id=815&aff_id=207603',
 		),
@@ -107,19 +149,6 @@ function arrobo_co_get_hosting() {
 }
 
 // ========================
-// HELPER: Perfmatters Detection
-// ========================
-
-/**
- * Check if Perfmatters plugin is active.
- *
- * @return bool
- */
-function arrobo_co_perfmatters_active() {
-	return defined( 'PERFMATTERS_VERSION' );
-}
-
-// ========================
 // MODULE 1: LOGIN BRANDING & STYLING
 // ========================
 
@@ -131,7 +160,7 @@ if ( ARROBO_CO_LOGIN_BRANDING ) {
 	add_action( 'login_enqueue_scripts', 'arrobo_co_login_styles' );
 
 	function arrobo_co_login_styles() {
-		$logo_url = '';
+		$logo_url       = '';
 		$custom_logo_id = get_theme_mod( 'custom_logo' );
 
 		if ( $custom_logo_id ) {
@@ -302,7 +331,7 @@ if ( ARROBO_CO_LOGIN_BRANDING ) {
 if ( ARROBO_CO_CLEAN_ADMIN_BAR ) {
 
 	/**
-	 * Remove WordPress branding nodes from the admin bar.
+	 * Remove WordPress branding and quick-action nodes from the admin bar.
 	 *
 	 * @param WP_Admin_Bar $wp_admin_bar Admin bar instance.
 	 */
@@ -397,8 +426,7 @@ if ( ARROBO_CO_SECURITY ) {
 
 	// TODO: Add Ottokit (SureTriggers) detection here if future security
 	// hardening requires REST API exceptions. Detection example:
-	// defined('JEENGINE_VERSION') already protects JetEngine.
-	// For Ottokit: defined('JEENGINE_VERSION') or check for 'suretriggers/suretriggers.php'
+	// For Ottokit: check for 'suretriggers/suretriggers.php' in active plugins.
 
 	// ----------------------------------------
 	// 5.1 — Hide REST Users Endpoint
@@ -670,5 +698,340 @@ if ( ARROBO_CO_DISABLE_GUTENBERG ) {
 			wp_dequeue_style( 'global-styles' );
 			wp_dequeue_style( 'classic-theme-styles' );
 		}
+	}
+}
+
+// ========================
+// MODULE 8: DISABLE COMMENTS
+// ========================
+
+if ( ARROBO_CO_DISABLE_COMMENTS ) {
+
+	// Skip if Perfmatters is active (it can handle comment disabling).
+	if ( ! arrobo_co_perfmatters_active() ) {
+
+		/**
+		 * Disable comment support on all post types and remove admin UI elements.
+		 */
+		add_action( 'admin_init', 'arrobo_co_disable_comments_admin' );
+
+		function arrobo_co_disable_comments_admin() {
+			// Remove comment support from all post types.
+			$post_types = get_post_types( array(), 'names' );
+			foreach ( $post_types as $post_type ) {
+				if ( post_type_supports( $post_type, 'comments' ) ) {
+					remove_post_type_support( $post_type, 'comments' );
+					remove_post_type_support( $post_type, 'trackbacks' );
+				}
+			}
+
+			// Remove dashboard meta boxes.
+			remove_meta_box( 'dashboard_recent_comments', 'dashboard', 'normal' );
+		}
+
+		/**
+		 * Remove Comments from admin menu.
+		 */
+		add_action( 'admin_menu', 'arrobo_co_disable_comments_menu' );
+
+		function arrobo_co_disable_comments_menu() {
+			remove_menu_page( 'edit-comments.php' );
+		}
+
+		/**
+		 * Remove Comments link from admin bar.
+		 *
+		 * @param WP_Admin_Bar $wp_admin_bar Admin bar instance.
+		 */
+		add_action( 'admin_bar_menu', 'arrobo_co_disable_comments_admin_bar', 999 );
+
+		function arrobo_co_disable_comments_admin_bar( $wp_admin_bar ) {
+			$wp_admin_bar->remove_node( 'comments' );
+		}
+
+		/**
+		 * Close comments on the frontend via filters.
+		 */
+		add_filter( 'comments_open', '__return_false', 20 );
+		add_filter( 'pings_open', '__return_false', 20 );
+
+		/**
+		 * Hide existing comments.
+		 *
+		 * @return array Empty array.
+		 */
+		add_filter( 'comments_array', 'arrobo_co_disable_comments_hide_existing', 10, 2 );
+
+		function arrobo_co_disable_comments_hide_existing() {
+			return array();
+		}
+
+		/**
+		 * Remove URL field from comment form.
+		 *
+		 * @param array $fields Comment form fields.
+		 * @return array
+		 */
+		add_filter( 'comment_form_default_fields', 'arrobo_co_disable_comments_remove_url_field' );
+
+		function arrobo_co_disable_comments_remove_url_field( $fields ) {
+			unset( $fields['url'] );
+			return $fields;
+		}
+
+		/**
+		 * Dequeue comment-reply script.
+		 */
+		add_action( 'wp_enqueue_scripts', 'arrobo_co_disable_comments_dequeue_reply', 20 );
+
+		function arrobo_co_disable_comments_dequeue_reply() {
+			wp_dequeue_script( 'comment-reply' );
+		}
+
+		/**
+		 * Redirect any direct access to edit-comments.php.
+		 */
+		add_action( 'admin_init', 'arrobo_co_disable_comments_redirect' );
+
+		function arrobo_co_disable_comments_redirect() {
+			global $pagenow;
+			if ( 'edit-comments.php' === $pagenow ) {
+				wp_safe_redirect( admin_url() );
+				exit;
+			}
+		}
+	}
+}
+
+// ========================
+// MODULE 9: WP PERFORMANCE
+// ========================
+
+if ( ARROBO_CO_WP_PERFORMANCE ) {
+
+	// Skip entirely if Perfmatters handles these optimizations.
+	if ( ! arrobo_co_perfmatters_active() ) {
+
+		// ----------------------------------------
+		// 9.1 — Disable Password Strength Meter
+		// (Saves ~400KB JS on non-profile pages)
+		// ----------------------------------------
+
+		/**
+		 * Dequeue password strength meter on pages that don't need it.
+		 */
+		add_action( 'wp_enqueue_scripts', 'arrobo_co_disable_password_strength_meter', 20 );
+
+		function arrobo_co_disable_password_strength_meter() {
+			// Keep on WP login reset password page (handled by wp-login.php, not wp_enqueue_scripts).
+			wp_dequeue_script( 'zxcvbn-async' );
+			wp_dequeue_script( 'password-strength-meter' );
+		}
+
+		// ----------------------------------------
+		// 9.2 — Heartbeat API Control
+		// ----------------------------------------
+
+		/**
+		 * Control Heartbeat API based on configured behavior.
+		 */
+		add_action( 'init', 'arrobo_co_heartbeat_control', 1 );
+
+		function arrobo_co_heartbeat_control() {
+			$behavior = ARROBO_CO_HEARTBEAT_BEHAVIOR;
+
+			if ( 'default' === $behavior ) {
+				return;
+			}
+
+			if ( 'disable' === $behavior ) {
+				wp_deregister_script( 'heartbeat' );
+				return;
+			}
+
+			// 'only_editing': allow heartbeat only in post editor.
+			if ( 'only_editing' === $behavior ) {
+				global $pagenow;
+				if ( 'post.php' !== $pagenow && 'post-new.php' !== $pagenow ) {
+					wp_deregister_script( 'heartbeat' );
+				}
+			}
+		}
+
+		/**
+		 * Set custom heartbeat frequency.
+		 *
+		 * @param array $settings Heartbeat settings.
+		 * @return array
+		 */
+		add_filter( 'heartbeat_settings', 'arrobo_co_heartbeat_frequency' );
+
+		function arrobo_co_heartbeat_frequency( $settings ) {
+			$settings['interval'] = (int) ARROBO_CO_HEARTBEAT_FREQUENCY;
+			return $settings;
+		}
+
+		// ----------------------------------------
+		// 9.3 — Limit Post Revisions
+		// ----------------------------------------
+
+		if ( ! defined( 'WP_POST_REVISIONS' ) ) {
+			define( 'WP_POST_REVISIONS', (int) ARROBO_CO_POST_REVISIONS );
+		}
+
+		// ----------------------------------------
+		// 9.4 — Autosave Interval
+		// ----------------------------------------
+
+		if ( ! defined( 'AUTOSAVE_INTERVAL' ) ) {
+			define( 'AUTOSAVE_INTERVAL', (int) ARROBO_CO_AUTOSAVE_INTERVAL );
+		}
+	}
+}
+
+// ========================
+// MODULE 10: SELF-UPDATER
+// ========================
+
+if ( ARROBO_CO_SELF_UPDATE ) {
+
+	/**
+	 * Register custom cron schedule based on ARROBO_CO_UPDATE_FREQUENCY.
+	 *
+	 * @param array $schedules Existing cron schedules.
+	 * @return array
+	 */
+	add_filter( 'cron_schedules', 'arrobo_co_update_cron_schedule' );
+
+	function arrobo_co_update_cron_schedule( $schedules ) {
+		$days = max( 1, (int) ARROBO_CO_UPDATE_FREQUENCY );
+		$schedules['arrobo_co_update_interval'] = array(
+			'interval' => $days * DAY_IN_SECONDS,
+			'display'  => sprintf( 'Every %d days (Arrobo & Co)', $days ),
+		);
+		return $schedules;
+	}
+
+	/**
+	 * Schedule the update check cron event if not already scheduled.
+	 */
+	add_action( 'admin_init', 'arrobo_co_schedule_update_check' );
+
+	function arrobo_co_schedule_update_check() {
+		if ( ! wp_next_scheduled( 'arrobo_co_update_check' ) ) {
+			wp_schedule_event( time(), 'arrobo_co_update_interval', 'arrobo_co_update_check' );
+		}
+	}
+
+	/**
+	 * Run the update check: fetch remote JSON, compare versions, download if newer.
+	 */
+	add_action( 'arrobo_co_update_check', 'arrobo_co_run_update_check' );
+
+	function arrobo_co_run_update_check() {
+		$update_url = ARROBO_CO_UPDATE_URL;
+
+		// Fetch the remote update manifest.
+		$response = wp_remote_get( $update_url, array(
+			'timeout'   => 15,
+			'sslverify' => true,
+		) );
+
+		if ( is_wp_error( $response ) ) {
+			return;
+		}
+
+		$status_code = wp_remote_retrieve_response_code( $response );
+		if ( 200 !== $status_code ) {
+			return;
+		}
+
+		$body = wp_remote_retrieve_body( $response );
+		$data = json_decode( $body, true );
+
+		if ( ! is_array( $data ) || empty( $data['version'] ) || empty( $data['download_url'] ) ) {
+			return;
+		}
+
+		// Only update if remote version is greater than local.
+		if ( version_compare( $data['version'], ARROBO_CO_VERSION, '<=' ) ) {
+			return;
+		}
+
+		// Security: only allow downloads from the same domain as the update URL.
+		$allowed_host  = wp_parse_url( $update_url, PHP_URL_HOST );
+		$download_host = wp_parse_url( $data['download_url'], PHP_URL_HOST );
+
+		// Allow GitHub releases (github.com and objects.githubusercontent.com).
+		$allowed_hosts = array( $allowed_host, 'github.com', 'objects.githubusercontent.com' );
+		if ( ! in_array( $download_host, $allowed_hosts, true ) ) {
+			return;
+		}
+
+		// Download the new file.
+		$file_response = wp_remote_get( $data['download_url'], array(
+			'timeout'   => 15,
+			'sslverify' => true,
+		) );
+
+		if ( is_wp_error( $file_response ) ) {
+			return;
+		}
+
+		if ( 200 !== wp_remote_retrieve_response_code( $file_response ) ) {
+			return;
+		}
+
+		$file_content = wp_remote_retrieve_body( $file_response );
+
+		// Validate: must be PHP and contain the expected plugin header.
+		if ( strpos( $file_content, '<?php' ) !== 0 ) {
+			return;
+		}
+		if ( strpos( $file_content, 'Plugin Name: Arrobo & Co Core' ) === false ) {
+			return;
+		}
+
+		// Write the updated file.
+		$target = WPMU_PLUGIN_DIR . '/arrobo-core.php';
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		$written = @file_put_contents( $target, $file_content );
+
+		if ( false !== $written ) {
+			// Store update info for admin notice.
+			set_transient( 'arrobo_co_updated', $data['version'], DAY_IN_SECONDS );
+		}
+	}
+
+	/**
+	 * Show admin notice after successful update (once).
+	 */
+	add_action( 'admin_notices', 'arrobo_co_update_admin_notice' );
+
+	function arrobo_co_update_admin_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$updated_version = get_transient( 'arrobo_co_updated' );
+		if ( ! $updated_version ) {
+			return;
+		}
+
+		delete_transient( 'arrobo_co_updated' );
+
+		printf(
+			'<div class="notice notice-success is-dismissible"><p><strong>Arrobo & Co Core</strong> actualizado a v%s.</p></div>',
+			esc_html( $updated_version )
+		);
+	}
+
+} else {
+
+	// Clean up cron event if self-update module is disabled.
+	$timestamp = wp_next_scheduled( 'arrobo_co_update_check' );
+	if ( $timestamp ) {
+		wp_unschedule_event( $timestamp, 'arrobo_co_update_check' );
 	}
 }
