@@ -1,0 +1,7 @@
+{
+  "version": "2.0.1",
+  "download_url": "https://github.com/sarrobo/arrobo-core-wp/releases/download/v2.0.1/arrobo-core.php",
+  "requires_php": "7.4",
+  "requires_wp": "6.0",
+  "changelog": "Fix Perfmatters detection: defer checks to plugins_loaded hook. Fix admin footer priority."
+}
