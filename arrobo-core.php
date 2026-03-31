@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Arrobo & Co Core
  * Description: MU-Plugin modular — Branding, seguridad y optimización WP by Arrobo & Co
- * Version:     2.0.0
+ * Version:     2.0.1
  * Author:      Arrobo & Co
  * Author URI:  https://arrobo.ec
  *
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // VERSION
 // ========================
 
-define( 'ARROBO_CO_VERSION', '2.0.0' );
+define( 'ARROBO_CO_VERSION', '2.0.1' );
 
 // ========================
 // MODULE SWITCHES
@@ -356,7 +356,7 @@ if ( ARROBO_CO_ADMIN_FOOTER ) {
 	 *
 	 * @return string
 	 */
-	add_filter( 'admin_footer_text', 'arrobo_co_admin_footer_text' );
+	add_filter( 'admin_footer_text', 'arrobo_co_admin_footer_text', 9999 );
 
 	function arrobo_co_admin_footer_text() {
 		$text = sprintf(
@@ -474,29 +474,29 @@ if ( ARROBO_CO_SECURITY ) {
 	// (Skipped if Perfmatters is active)
 	// ----------------------------------------
 
-	if ( ! arrobo_co_perfmatters_active() ) {
+	/**
+	 * Remove version from script and style query strings.
+	 *
+	 * @param string $src Asset source URL.
+	 * @return string
+	 */
+	function arrobo_co_remove_wp_version_strings( $src ) {
+		if ( strpos( $src, 'ver=' . get_bloginfo( 'version' ) ) !== false ) {
+			$src = remove_query_arg( 'ver', $src );
+		}
+		return $src;
+	}
 
-		// Remove from head.
+	add_action( 'plugins_loaded', 'arrobo_co_maybe_remove_wp_version', 0 );
+
+	function arrobo_co_maybe_remove_wp_version() {
+		if ( arrobo_co_perfmatters_active() ) {
+			return;
+		}
 		remove_action( 'wp_head', 'wp_generator' );
-
-		// Remove from feeds.
 		add_filter( 'the_generator', '__return_empty_string' );
-
-		/**
-		 * Remove version from script and style query strings.
-		 *
-		 * @param string $src Asset source URL.
-		 * @return string
-		 */
 		add_filter( 'script_loader_src', 'arrobo_co_remove_wp_version_strings', 10, 1 );
 		add_filter( 'style_loader_src', 'arrobo_co_remove_wp_version_strings', 10, 1 );
-
-		function arrobo_co_remove_wp_version_strings( $src ) {
-			if ( strpos( $src, 'ver=' . get_bloginfo( 'version' ) ) !== false ) {
-				$src = remove_query_arg( 'ver', $src );
-			}
-			return $src;
-		}
 	}
 
 	// ----------------------------------------
@@ -587,83 +587,89 @@ if ( ARROBO_CO_SECURITY ) {
 
 if ( ARROBO_CO_WP_CLEANUP ) {
 
-	// Skip entirely if Perfmatters handles these optimizations.
-	if ( ! arrobo_co_perfmatters_active() ) {
+	// ----------------------------------------
+	// 6.1 — Disable Emojis
+	// ----------------------------------------
 
-		// ----------------------------------------
-		// 6.1 — Disable Emojis
-		// ----------------------------------------
+	/**
+	 * Remove WordPress emoji scripts and styles.
+	 */
+	function arrobo_co_disable_emojis() {
+		remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
+		remove_action( 'admin_print_scripts', 'print_emoji_detection_script' );
+		remove_action( 'wp_print_styles', 'print_emoji_styles' );
+		remove_action( 'admin_print_styles', 'print_emoji_styles' );
+		remove_filter( 'the_content_feed', 'wp_staticize_emoji' );
+		remove_filter( 'comment_text_rss', 'wp_staticize_emoji' );
+		remove_filter( 'wp_mail', 'wp_staticize_emoji_for_email' );
 
-		/**
-		 * Remove WordPress emoji scripts and styles.
-		 */
+		add_filter( 'tiny_mce_plugins', 'arrobo_co_disable_emojis_tinymce' );
+		add_filter( 'wp_resource_hints', 'arrobo_co_disable_emojis_dns_prefetch', 10, 2 );
+	}
+
+	/**
+	 * Remove wpemoji from TinyMCE plugins.
+	 *
+	 * @param array $plugins TinyMCE plugins.
+	 * @return array
+	 */
+	function arrobo_co_disable_emojis_tinymce( $plugins ) {
+		if ( is_array( $plugins ) ) {
+			return array_diff( $plugins, array( 'wpemoji' ) );
+		}
+		return array();
+	}
+
+	/**
+	 * Remove emoji DNS prefetch.
+	 *
+	 * @param array  $urls          URLs to prefetch.
+	 * @param string $relation_type Relation type.
+	 * @return array
+	 */
+	function arrobo_co_disable_emojis_dns_prefetch( $urls, $relation_type ) {
+		if ( 'dns-prefetch' === $relation_type ) {
+			$emoji_svg_url = apply_filters( 'emoji_svg_url', 'https://s.w.org/images/core/emoji/2/svg/' );
+			$urls          = array_diff( $urls, array( $emoji_svg_url ) );
+		}
+		return $urls;
+	}
+
+	// ----------------------------------------
+	// 6.2 — Remove oEmbed
+	// ----------------------------------------
+
+	/**
+	 * Remove oEmbed-related actions and scripts.
+	 */
+	function arrobo_co_disable_oembed() {
+		remove_action( 'wp_head', 'wp_oembed_add_discovery_links' );
+		remove_action( 'wp_head', 'wp_oembed_add_host_js' );
+	}
+
+	function arrobo_co_dequeue_embed_script() {
+		wp_dequeue_script( 'wp-embed' );
+	}
+
+	// ----------------------------------------
+	// Register cleanup hooks after plugins load (Perfmatters detection).
+	// ----------------------------------------
+
+	add_action( 'plugins_loaded', 'arrobo_co_maybe_wp_cleanup', 0 );
+
+	function arrobo_co_maybe_wp_cleanup() {
+		if ( arrobo_co_perfmatters_active() ) {
+			return;
+		}
+
+		// 6.1 — Disable Emojis.
 		add_action( 'init', 'arrobo_co_disable_emojis' );
 
-		function arrobo_co_disable_emojis() {
-			remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
-			remove_action( 'admin_print_scripts', 'print_emoji_detection_script' );
-			remove_action( 'wp_print_styles', 'print_emoji_styles' );
-			remove_action( 'admin_print_styles', 'print_emoji_styles' );
-			remove_filter( 'the_content_feed', 'wp_staticize_emoji' );
-			remove_filter( 'comment_text_rss', 'wp_staticize_emoji' );
-			remove_filter( 'wp_mail', 'wp_staticize_emoji_for_email' );
-
-			add_filter( 'tiny_mce_plugins', 'arrobo_co_disable_emojis_tinymce' );
-			add_filter( 'wp_resource_hints', 'arrobo_co_disable_emojis_dns_prefetch', 10, 2 );
-		}
-
-		/**
-		 * Remove wpemoji from TinyMCE plugins.
-		 *
-		 * @param array $plugins TinyMCE plugins.
-		 * @return array
-		 */
-		function arrobo_co_disable_emojis_tinymce( $plugins ) {
-			if ( is_array( $plugins ) ) {
-				return array_diff( $plugins, array( 'wpemoji' ) );
-			}
-			return array();
-		}
-
-		/**
-		 * Remove emoji DNS prefetch.
-		 *
-		 * @param array  $urls          URLs to prefetch.
-		 * @param string $relation_type Relation type.
-		 * @return array
-		 */
-		function arrobo_co_disable_emojis_dns_prefetch( $urls, $relation_type ) {
-			if ( 'dns-prefetch' === $relation_type ) {
-				$emoji_svg_url = apply_filters( 'emoji_svg_url', 'https://s.w.org/images/core/emoji/2/svg/' );
-				$urls          = array_diff( $urls, array( $emoji_svg_url ) );
-			}
-			return $urls;
-		}
-
-		// ----------------------------------------
-		// 6.2 — Remove oEmbed
-		// ----------------------------------------
-
-		/**
-		 * Remove oEmbed-related actions and scripts.
-		 */
+		// 6.2 — Remove oEmbed.
 		add_action( 'init', 'arrobo_co_disable_oembed', 9999 );
-
-		function arrobo_co_disable_oembed() {
-			remove_action( 'wp_head', 'wp_oembed_add_discovery_links' );
-			remove_action( 'wp_head', 'wp_oembed_add_host_js' );
-		}
-
 		add_action( 'wp_footer', 'arrobo_co_dequeue_embed_script' );
 
-		function arrobo_co_dequeue_embed_script() {
-			wp_dequeue_script( 'wp-embed' );
-		}
-
-		// ----------------------------------------
-		// 6.3 — Clean wp_head
-		// ----------------------------------------
-
+		// 6.3 — Clean wp_head.
 		remove_action( 'wp_head', 'rsd_link' );
 		remove_action( 'wp_head', 'wlwmanifest_link' );
 		remove_action( 'wp_head', 'wp_shortlink_wp_head' );
@@ -678,26 +684,25 @@ if ( ARROBO_CO_WP_CLEANUP ) {
 
 if ( ARROBO_CO_DISABLE_GUTENBERG ) {
 
-	// Skip if Perfmatters is active (it can handle Gutenberg disabling).
-	if ( ! arrobo_co_perfmatters_active() ) {
+	/**
+	 * Dequeue Gutenberg block styles from the frontend.
+	 */
+	function arrobo_co_dequeue_block_styles() {
+		wp_dequeue_style( 'wp-block-library' );
+		wp_dequeue_style( 'wp-block-library-theme' );
+		wp_dequeue_style( 'global-styles' );
+		wp_dequeue_style( 'classic-theme-styles' );
+	}
 
-		// Disable Block Editor for posts.
-		add_filter( 'use_block_editor_for_post', '__return_false' );
+	add_action( 'plugins_loaded', 'arrobo_co_maybe_disable_gutenberg', 0 );
 
-		// Disable Block Editor for widgets.
-		add_filter( 'use_widgets_block_editor', '__return_false' );
-
-		/**
-		 * Dequeue Gutenberg block styles from the frontend.
-		 */
-		add_action( 'wp_enqueue_scripts', 'arrobo_co_dequeue_block_styles', 20 );
-
-		function arrobo_co_dequeue_block_styles() {
-			wp_dequeue_style( 'wp-block-library' );
-			wp_dequeue_style( 'wp-block-library-theme' );
-			wp_dequeue_style( 'global-styles' );
-			wp_dequeue_style( 'classic-theme-styles' );
+	function arrobo_co_maybe_disable_gutenberg() {
+		if ( arrobo_co_perfmatters_active() ) {
+			return;
 		}
+		add_filter( 'use_block_editor_for_post', '__return_false' );
+		add_filter( 'use_widgets_block_editor', '__return_false' );
+		add_action( 'wp_enqueue_scripts', 'arrobo_co_dequeue_block_styles', 20 );
 	}
 }
 
@@ -707,99 +712,67 @@ if ( ARROBO_CO_DISABLE_GUTENBERG ) {
 
 if ( ARROBO_CO_DISABLE_COMMENTS ) {
 
-	// Skip if Perfmatters is active (it can handle comment disabling).
-	if ( ! arrobo_co_perfmatters_active() ) {
-
-		/**
-		 * Disable comment support on all post types and remove admin UI elements.
-		 */
-		add_action( 'admin_init', 'arrobo_co_disable_comments_admin' );
-
-		function arrobo_co_disable_comments_admin() {
-			// Remove comment support from all post types.
-			$post_types = get_post_types( array(), 'names' );
-			foreach ( $post_types as $post_type ) {
-				if ( post_type_supports( $post_type, 'comments' ) ) {
-					remove_post_type_support( $post_type, 'comments' );
-					remove_post_type_support( $post_type, 'trackbacks' );
-				}
+	/**
+	 * Disable comment support on all post types and remove admin UI elements.
+	 */
+	function arrobo_co_disable_comments_admin() {
+		$post_types = get_post_types( array(), 'names' );
+		foreach ( $post_types as $post_type ) {
+			if ( post_type_supports( $post_type, 'comments' ) ) {
+				remove_post_type_support( $post_type, 'comments' );
+				remove_post_type_support( $post_type, 'trackbacks' );
 			}
-
-			// Remove dashboard meta boxes.
-			remove_meta_box( 'dashboard_recent_comments', 'dashboard', 'normal' );
 		}
+		remove_meta_box( 'dashboard_recent_comments', 'dashboard', 'normal' );
+	}
 
-		/**
-		 * Remove Comments from admin menu.
-		 */
+	function arrobo_co_disable_comments_menu() {
+		remove_menu_page( 'edit-comments.php' );
+	}
+
+	/**
+	 * @param WP_Admin_Bar $wp_admin_bar Admin bar instance.
+	 */
+	function arrobo_co_disable_comments_admin_bar( $wp_admin_bar ) {
+		$wp_admin_bar->remove_node( 'comments' );
+	}
+
+	function arrobo_co_disable_comments_hide_existing() {
+		return array();
+	}
+
+	function arrobo_co_disable_comments_remove_url_field( $fields ) {
+		unset( $fields['url'] );
+		return $fields;
+	}
+
+	function arrobo_co_disable_comments_dequeue_reply() {
+		wp_dequeue_script( 'comment-reply' );
+	}
+
+	function arrobo_co_disable_comments_redirect() {
+		global $pagenow;
+		if ( 'edit-comments.php' === $pagenow ) {
+			wp_safe_redirect( admin_url() );
+			exit;
+		}
+	}
+
+	add_action( 'plugins_loaded', 'arrobo_co_maybe_disable_comments', 0 );
+
+	function arrobo_co_maybe_disable_comments() {
+		if ( arrobo_co_perfmatters_active() ) {
+			return;
+		}
+		add_action( 'admin_init', 'arrobo_co_disable_comments_admin' );
 		add_action( 'admin_menu', 'arrobo_co_disable_comments_menu' );
-
-		function arrobo_co_disable_comments_menu() {
-			remove_menu_page( 'edit-comments.php' );
-		}
-
-		/**
-		 * Remove Comments link from admin bar.
-		 *
-		 * @param WP_Admin_Bar $wp_admin_bar Admin bar instance.
-		 */
 		add_action( 'admin_bar_menu', 'arrobo_co_disable_comments_admin_bar', 999 );
-
-		function arrobo_co_disable_comments_admin_bar( $wp_admin_bar ) {
-			$wp_admin_bar->remove_node( 'comments' );
-		}
-
-		/**
-		 * Close comments on the frontend via filters.
-		 */
 		add_filter( 'comments_open', '__return_false', 20 );
 		add_filter( 'pings_open', '__return_false', 20 );
-
-		/**
-		 * Hide existing comments.
-		 *
-		 * @return array Empty array.
-		 */
 		add_filter( 'comments_array', 'arrobo_co_disable_comments_hide_existing', 10, 2 );
-
-		function arrobo_co_disable_comments_hide_existing() {
-			return array();
-		}
-
-		/**
-		 * Remove URL field from comment form.
-		 *
-		 * @param array $fields Comment form fields.
-		 * @return array
-		 */
 		add_filter( 'comment_form_default_fields', 'arrobo_co_disable_comments_remove_url_field' );
-
-		function arrobo_co_disable_comments_remove_url_field( $fields ) {
-			unset( $fields['url'] );
-			return $fields;
-		}
-
-		/**
-		 * Dequeue comment-reply script.
-		 */
 		add_action( 'wp_enqueue_scripts', 'arrobo_co_disable_comments_dequeue_reply', 20 );
-
-		function arrobo_co_disable_comments_dequeue_reply() {
-			wp_dequeue_script( 'comment-reply' );
-		}
-
-		/**
-		 * Redirect any direct access to edit-comments.php.
-		 */
 		add_action( 'admin_init', 'arrobo_co_disable_comments_redirect' );
-
-		function arrobo_co_disable_comments_redirect() {
-			global $pagenow;
-			if ( 'edit-comments.php' === $pagenow ) {
-				wp_safe_redirect( admin_url() );
-				exit;
-			}
-		}
 	}
 }
 
@@ -809,80 +782,76 @@ if ( ARROBO_CO_DISABLE_COMMENTS ) {
 
 if ( ARROBO_CO_WP_PERFORMANCE ) {
 
-	// Skip entirely if Perfmatters handles these optimizations.
-	if ( ! arrobo_co_perfmatters_active() ) {
+	// ----------------------------------------
+	// 9.1 — Disable Password Strength Meter
+	// (Saves ~400KB JS on non-profile pages)
+	// ----------------------------------------
 
-		// ----------------------------------------
-		// 9.1 — Disable Password Strength Meter
-		// (Saves ~400KB JS on non-profile pages)
-		// ----------------------------------------
+	function arrobo_co_disable_password_strength_meter() {
+		wp_dequeue_script( 'zxcvbn-async' );
+		wp_dequeue_script( 'password-strength-meter' );
+	}
 
-		/**
-		 * Dequeue password strength meter on pages that don't need it.
-		 */
+	// ----------------------------------------
+	// 9.2 — Heartbeat API Control
+	// ----------------------------------------
+
+	function arrobo_co_heartbeat_control() {
+		$behavior = ARROBO_CO_HEARTBEAT_BEHAVIOR;
+
+		if ( 'default' === $behavior ) {
+			return;
+		}
+
+		if ( 'disable' === $behavior ) {
+			wp_deregister_script( 'heartbeat' );
+			return;
+		}
+
+		// 'only_editing': allow heartbeat only in post editor.
+		if ( 'only_editing' === $behavior ) {
+			global $pagenow;
+			if ( 'post.php' !== $pagenow && 'post-new.php' !== $pagenow ) {
+				wp_deregister_script( 'heartbeat' );
+			}
+		}
+	}
+
+	/**
+	 * Set custom heartbeat frequency.
+	 *
+	 * @param array $settings Heartbeat settings.
+	 * @return array
+	 */
+	function arrobo_co_heartbeat_frequency( $settings ) {
+		$settings['interval'] = (int) ARROBO_CO_HEARTBEAT_FREQUENCY;
+		return $settings;
+	}
+
+	// ----------------------------------------
+	// Register performance hooks after plugins load (Perfmatters detection).
+	// ----------------------------------------
+
+	add_action( 'plugins_loaded', 'arrobo_co_maybe_wp_performance', 0 );
+
+	function arrobo_co_maybe_wp_performance() {
+		if ( arrobo_co_perfmatters_active() ) {
+			return;
+		}
+
+		// 9.1 — Disable Password Strength Meter.
 		add_action( 'wp_enqueue_scripts', 'arrobo_co_disable_password_strength_meter', 20 );
 
-		function arrobo_co_disable_password_strength_meter() {
-			// Keep on WP login reset password page (handled by wp-login.php, not wp_enqueue_scripts).
-			wp_dequeue_script( 'zxcvbn-async' );
-			wp_dequeue_script( 'password-strength-meter' );
-		}
-
-		// ----------------------------------------
-		// 9.2 — Heartbeat API Control
-		// ----------------------------------------
-
-		/**
-		 * Control Heartbeat API based on configured behavior.
-		 */
+		// 9.2 — Heartbeat API Control.
 		add_action( 'init', 'arrobo_co_heartbeat_control', 1 );
-
-		function arrobo_co_heartbeat_control() {
-			$behavior = ARROBO_CO_HEARTBEAT_BEHAVIOR;
-
-			if ( 'default' === $behavior ) {
-				return;
-			}
-
-			if ( 'disable' === $behavior ) {
-				wp_deregister_script( 'heartbeat' );
-				return;
-			}
-
-			// 'only_editing': allow heartbeat only in post editor.
-			if ( 'only_editing' === $behavior ) {
-				global $pagenow;
-				if ( 'post.php' !== $pagenow && 'post-new.php' !== $pagenow ) {
-					wp_deregister_script( 'heartbeat' );
-				}
-			}
-		}
-
-		/**
-		 * Set custom heartbeat frequency.
-		 *
-		 * @param array $settings Heartbeat settings.
-		 * @return array
-		 */
 		add_filter( 'heartbeat_settings', 'arrobo_co_heartbeat_frequency' );
 
-		function arrobo_co_heartbeat_frequency( $settings ) {
-			$settings['interval'] = (int) ARROBO_CO_HEARTBEAT_FREQUENCY;
-			return $settings;
-		}
-
-		// ----------------------------------------
-		// 9.3 — Limit Post Revisions
-		// ----------------------------------------
-
+		// 9.3 — Limit Post Revisions.
 		if ( ! defined( 'WP_POST_REVISIONS' ) ) {
 			define( 'WP_POST_REVISIONS', (int) ARROBO_CO_POST_REVISIONS );
 		}
 
-		// ----------------------------------------
-		// 9.4 — Autosave Interval
-		// ----------------------------------------
-
+		// 9.4 — Autosave Interval.
 		if ( ! defined( 'AUTOSAVE_INTERVAL' ) ) {
 			define( 'AUTOSAVE_INTERVAL', (int) ARROBO_CO_AUTOSAVE_INTERVAL );
 		}
