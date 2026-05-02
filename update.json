@@ -1,7 +1,8 @@
 {
-  "version": "2.0.1",
-  "download_url": "https://github.com/sarrobo/arrobo-core-wp/releases/download/v2.0.1/arrobo-core.php",
+  "version": "2.0.2",
+  "download_url": "https://github.com/sarrobo/arrobo-core-wp/releases/download/v2.0.2/arrobo-core.php",
+  "sha256": "f5c22ad8dca82013d52ba0a4ca96c9b50c18da6c4e5854b304de9ccbc5db3ab4",
   "requires_php": "7.4",
   "requires_wp": "6.0",
-  "changelog": "Fix Perfmatters detection: defer checks to plugins_loaded hook. Fix admin footer priority."
+  "changelog": "Security: SHA256 verification + restricted download URL pattern + backup before overwrite. Hardening: hex-color validation in login styles; uploads .htaccess now appends deny rule when missing instead of skipping. Fix: Gutenberg editor filters always apply (Perfmatters does not provide that feature). Fix: cron cleanup runs inside init hook."
 }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Arrobo & Co Core
  * Description: MU-Plugin modular — Branding, seguridad y optimización WP by Arrobo & Co
- * Version:     2.0.1
+ * Version:     2.0.2
  * Author:      Arrobo & Co
  * Author URI:  https://arrobo.ec
  *
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // VERSION
 // ========================
 
-define( 'ARROBO_CO_VERSION', '2.0.1' );
+define( 'ARROBO_CO_VERSION', '2.0.2' );
 
 // ========================
 // MODULE SWITCHES
@@ -111,6 +111,23 @@ function arrobo_co_perfmatters_active() {
 }
 
 /**
+ * Validate a hex color or fall back to a safe default.
+ *
+ * Login styles inject these into a CSS context, where esc_attr would not catch
+ * a malformed value that breaks out of the declaration.
+ *
+ * @param mixed  $value    Candidate color string.
+ * @param string $fallback Fallback hex color (must itself be valid).
+ * @return string
+ */
+function arrobo_co_sanitize_hex_color( $value, $fallback ) {
+	if ( is_string( $value ) && preg_match( '/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i', $value ) ) {
+		return $value;
+	}
+	return $fallback;
+}
+
+/**
  * Get hosting provider name and URL from presets or custom config.
  *
  * @return array{name: string, url: string}|false False if hosting is 'none'.
@@ -170,9 +187,9 @@ if ( ARROBO_CO_LOGIN_BRANDING ) {
 			}
 		}
 
-		$color_primary   = esc_attr( ARROBO_CO_LOGIN_COLOR_PRIMARY );
-		$color_secondary = esc_attr( ARROBO_CO_LOGIN_COLOR_SECONDARY );
-		$color_accent    = esc_attr( ARROBO_CO_LOGIN_COLOR_ACCENT );
+		$color_primary   = arrobo_co_sanitize_hex_color( ARROBO_CO_LOGIN_COLOR_PRIMARY, '#1F123F' );
+		$color_secondary = arrobo_co_sanitize_hex_color( ARROBO_CO_LOGIN_COLOR_SECONDARY, '#1E293B' );
+		$color_accent    = arrobo_co_sanitize_hex_color( ARROBO_CO_LOGIN_COLOR_ACCENT, '#E40046' );
 
 		?>
 		<style>
@@ -567,17 +584,34 @@ if ( ARROBO_CO_SECURITY ) {
 		$upload_dir = wp_upload_dir();
 		$htaccess   = trailingslashit( $upload_dir['basedir'] ) . '.htaccess';
 
-		if ( file_exists( $htaccess ) ) {
-			return;
-		}
-
-		$rules  = "# Arrobo & Co — Deny PHP execution in uploads\n";
+		$marker = '# Arrobo & Co — Deny PHP execution in uploads';
+		$rules  = $marker . "\n";
 		$rules .= "<Files *.php>\n";
 		$rules .= "deny from all\n";
 		$rules .= "</Files>\n";
 
+		if ( ! file_exists( $htaccess ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@file_put_contents( $htaccess, $rules );
+			return;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents
+		$existing = @file_get_contents( $htaccess );
+
+		if ( false === $existing ) {
+			return;
+		}
+
+		// Already protected — leave the file untouched.
+		if ( strpos( $existing, $marker ) !== false ) {
+			return;
+		}
+
+		// File exists but lacks our deny rule — append rather than overwrite,
+		// so we don't clobber rules added by other plugins or the host.
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-		@file_put_contents( $htaccess, $rules );
+		@file_put_contents( $htaccess, rtrim( $existing, "\n" ) . "\n\n" . $rules );
 	}
 }
 
@@ -694,14 +728,17 @@ if ( ARROBO_CO_DISABLE_GUTENBERG ) {
 		wp_dequeue_style( 'classic-theme-styles' );
 	}
 
-	add_action( 'plugins_loaded', 'arrobo_co_maybe_disable_gutenberg', 0 );
+	// Editor disabling: always applied. Perfmatters does not provide this feature.
+	add_filter( 'use_block_editor_for_post', '__return_false' );
+	add_filter( 'use_widgets_block_editor', '__return_false' );
 
-	function arrobo_co_maybe_disable_gutenberg() {
+	// Block library style dequeue: skip if Perfmatters is active (it handles this).
+	add_action( 'plugins_loaded', 'arrobo_co_maybe_dequeue_block_styles', 0 );
+
+	function arrobo_co_maybe_dequeue_block_styles() {
 		if ( arrobo_co_perfmatters_active() ) {
 			return;
 		}
-		add_filter( 'use_block_editor_for_post', '__return_false' );
-		add_filter( 'use_widgets_block_editor', '__return_false' );
 		add_action( 'wp_enqueue_scripts', 'arrobo_co_dequeue_block_styles', 20 );
 	}
 }
@@ -918,7 +955,13 @@ if ( ARROBO_CO_SELF_UPDATE ) {
 		$body = wp_remote_retrieve_body( $response );
 		$data = json_decode( $body, true );
 
-		if ( ! is_array( $data ) || empty( $data['version'] ) || empty( $data['download_url'] ) ) {
+		if ( ! is_array( $data ) ) {
+			return;
+		}
+		if ( empty( $data['version'] ) || empty( $data['download_url'] ) || empty( $data['sha256'] ) ) {
+			return;
+		}
+		if ( ! preg_match( '/^[a-f0-9]{64}$/i', $data['sha256'] ) ) {
 			return;
 		}
 
@@ -927,13 +970,9 @@ if ( ARROBO_CO_SELF_UPDATE ) {
 			return;
 		}
 
-		// Security: only allow downloads from the same domain as the update URL.
-		$allowed_host  = wp_parse_url( $update_url, PHP_URL_HOST );
-		$download_host = wp_parse_url( $data['download_url'], PHP_URL_HOST );
-
-		// Allow GitHub releases (github.com and objects.githubusercontent.com).
-		$allowed_hosts = array( $allowed_host, 'github.com', 'objects.githubusercontent.com' );
-		if ( ! in_array( $download_host, $allowed_hosts, true ) ) {
+		// Security: download_url must point to a release artifact in the official repo.
+		$allowed_pattern = '#^https://github\.com/sarrobo/arrobo-core-wp/releases/download/v[0-9.]+/arrobo-core\.php$#';
+		if ( ! preg_match( $allowed_pattern, $data['download_url'] ) ) {
 			return;
 		}
 
@@ -953,7 +992,15 @@ if ( ARROBO_CO_SELF_UPDATE ) {
 
 		$file_content = wp_remote_retrieve_body( $file_response );
 
-		// Validate: must be PHP and contain the expected plugin header.
+		// Verify SHA256 hash matches manifest. Hard requirement — protects against
+		// compromise of the update server, MitM via cert misconfig, and accidental
+		// publication of a corrupted artifact.
+		$actual_hash = hash( 'sha256', $file_content );
+		if ( ! hash_equals( strtolower( $data['sha256'] ), strtolower( $actual_hash ) ) ) {
+			return;
+		}
+
+		// Defense in depth: validate plugin header even after hash match.
 		if ( strpos( $file_content, '<?php' ) !== 0 ) {
 			return;
 		}
@@ -961,8 +1008,14 @@ if ( ARROBO_CO_SELF_UPDATE ) {
 			return;
 		}
 
-		// Write the updated file.
+		// Backup current file before overwriting, so a bad release can be rolled back manually.
 		$target = WPMU_PLUGIN_DIR . '/arrobo-core.php';
+		$backup = WPMU_PLUGIN_DIR . '/arrobo-core.php.bak';
+
+		if ( file_exists( $target ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_copy
+			@copy( $target, $backup );
+		}
 
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 		$written = @file_put_contents( $target, $file_content );
@@ -999,8 +1052,10 @@ if ( ARROBO_CO_SELF_UPDATE ) {
 } else {
 
 	// Clean up cron event if self-update module is disabled.
-	$timestamp = wp_next_scheduled( 'arrobo_co_update_check' );
-	if ( $timestamp ) {
-		wp_unschedule_event( $timestamp, 'arrobo_co_update_check' );
-	}
+	add_action( 'init', function () {
+		$timestamp = wp_next_scheduled( 'arrobo_co_update_check' );
+		if ( $timestamp ) {
+			wp_unschedule_event( $timestamp, 'arrobo_co_update_check' );
+		}
+	} );
 }
