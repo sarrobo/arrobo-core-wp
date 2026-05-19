@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Arrobo & Co Core
  * Description: MU-Plugin modular — Branding, seguridad y optimización WP by Arrobo & Co
- * Version:     2.0.2
+ * Version:     2.0.3
  * Author:      Arrobo & Co
  * Author URI:  https://arrobo.ec
  *
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // VERSION
 // ========================
 
-define( 'ARROBO_CO_VERSION', '2.0.2' );
+define( 'ARROBO_CO_VERSION', '2.0.3' );
 
 // ========================
 // MODULE SWITCHES
@@ -54,6 +54,9 @@ if ( ! defined( 'ARROBO_CO_WP_PERFORMANCE' ) ) {
 }
 if ( ! defined( 'ARROBO_CO_SELF_UPDATE' ) ) {
 	define( 'ARROBO_CO_SELF_UPDATE', true );
+}
+if ( ! defined( 'ARROBO_CO_EMAIL_DELIVERY' ) ) {
+	define( 'ARROBO_CO_EMAIL_DELIVERY', true );
 }
 
 // ========================
@@ -96,6 +99,12 @@ if ( ! defined( 'ARROBO_CO_POST_REVISIONS' ) ) {
 if ( ! defined( 'ARROBO_CO_AUTOSAVE_INTERVAL' ) ) {
 	define( 'ARROBO_CO_AUTOSAVE_INTERVAL', 300 );
 }
+if ( ! defined( 'ARROBO_CO_RESEND_SMTP_PORT' ) ) {
+	define( 'ARROBO_CO_RESEND_SMTP_PORT', 587 );
+}
+// NOTE: ARROBO_CO_RESEND_API_KEY is intentionally NOT defined here.
+// It is a per-site secret and must be set only in arrobo-config.php.
+// Without it, the Email Delivery module stays inert (default wp_mail).
 
 // ========================
 // HELPERS
@@ -415,8 +424,6 @@ if ( ARROBO_CO_DYNAMIC_EMAIL ) {
 	 *
 	 * @return string
 	 */
-	add_filter( 'wp_mail_from', 'arrobo_co_mail_from' );
-
 	function arrobo_co_mail_from() {
 		$parsed = wp_parse_url( home_url() );
 		$domain = isset( $parsed['host'] ) ? $parsed['host'] : 'localhost';
@@ -428,10 +435,26 @@ if ( ARROBO_CO_DYNAMIC_EMAIL ) {
 	 *
 	 * @return string
 	 */
-	add_filter( 'wp_mail_from_name', 'arrobo_co_mail_from_name' );
-
 	function arrobo_co_mail_from_name() {
 		return get_bloginfo( 'name' );
+	}
+
+	/**
+	 * Register sender filters unless WooCommerce is active.
+	 *
+	 * Store owners control the sender from WooCommerce > Settings > Emails.
+	 * Forcing noreply@ would override that and break the reply-to
+	 * expectation customers have for order emails. Checked on plugins_loaded
+	 * because WooCommerce (a regular plugin) is not yet loaded at MU parse time.
+	 */
+	add_action( 'plugins_loaded', 'arrobo_co_maybe_set_mail_sender', 0 );
+
+	function arrobo_co_maybe_set_mail_sender() {
+		if ( class_exists( 'WooCommerce' ) ) {
+			return;
+		}
+		add_filter( 'wp_mail_from', 'arrobo_co_mail_from' );
+		add_filter( 'wp_mail_from_name', 'arrobo_co_mail_from_name' );
 	}
 }
 
@@ -1058,4 +1081,92 @@ if ( ARROBO_CO_SELF_UPDATE ) {
 			wp_unschedule_event( $timestamp, 'arrobo_co_update_check' );
 		}
 	} );
+}
+
+// ========================
+// MODULE 11: EMAIL DELIVERY (RESEND SMTP)
+// ========================
+
+if ( ARROBO_CO_EMAIL_DELIVERY ) {
+
+	/**
+	 * Detect a dedicated SMTP/mail plugin so we can stand down.
+	 *
+	 * If the client installs WP Mail SMTP, FluentSMTP, Post SMTP, etc., that
+	 * plugin owns mail delivery. Running our phpmailer_init alongside it would
+	 * fight over PHPMailer config. Deferring keeps each site's choice intact.
+	 *
+	 * @return bool
+	 */
+	function arrobo_co_smtp_plugin_active() {
+		return (
+			defined( 'WPMS_PLUGIN_VER' )        // WP Mail SMTP.
+			|| defined( 'FLUENTMAIL_PLUGIN_VERSION' ) // FluentSMTP.
+			|| class_exists( 'PostmanOptions' )       // Post SMTP.
+			|| defined( 'MAIL_BANK_VERSION' )         // WP Mail Bank.
+			|| class_exists( 'Easy_WP_SMTP' )         // Easy WP SMTP.
+		);
+	}
+
+	/**
+	 * Whether the Resend transport is configured and clear to run.
+	 *
+	 * @return bool
+	 */
+	function arrobo_co_resend_ready() {
+		if ( ! defined( 'ARROBO_CO_RESEND_API_KEY' ) || ! ARROBO_CO_RESEND_API_KEY ) {
+			return false;
+		}
+		if ( arrobo_co_smtp_plugin_active() ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Route all wp_mail() through Resend's SMTP service.
+	 *
+	 * WordPress and WooCommerce build the full message (HTML, multipart,
+	 * headers, attachments); we only swap the transport. Resend logs SMTP
+	 * sends in its dashboard just like API sends.
+	 *
+	 * @param PHPMailer\PHPMailer\PHPMailer $phpmailer PHPMailer instance (by reference).
+	 */
+	function arrobo_co_resend_phpmailer_init( $phpmailer ) {
+		if ( ! arrobo_co_resend_ready() ) {
+			return;
+		}
+
+		$port = (int) ARROBO_CO_RESEND_SMTP_PORT;
+		if ( ! in_array( $port, array( 465, 587, 2465, 2587 ), true ) ) {
+			$port = 587;
+		}
+
+		$phpmailer->isSMTP();
+		$phpmailer->Host        = 'smtp.resend.com';
+		$phpmailer->SMTPAuth    = true;
+		$phpmailer->Username    = 'resend';
+		$phpmailer->Password    = ARROBO_CO_RESEND_API_KEY;
+		$phpmailer->Port        = $port;
+		$phpmailer->SMTPSecure  = ( 465 === $port || 2465 === $port ) ? 'ssl' : 'tls';
+		$phpmailer->SMTPAutoTLS = true;
+	}
+
+	add_action( 'phpmailer_init', 'arrobo_co_resend_phpmailer_init' );
+
+	/**
+	 * Log mail failures. Critical for stores: a silent failure means a
+	 * customer never gets their order confirmation.
+	 *
+	 * @param WP_Error $error Mail error.
+	 */
+	function arrobo_co_resend_log_failure( $error ) {
+		if ( ! arrobo_co_resend_ready() ) {
+			return;
+		}
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		error_log( 'Arrobo & Co — Resend mail failure: ' . $error->get_error_message() );
+	}
+
+	add_action( 'wp_mail_failed', 'arrobo_co_resend_log_failure' );
 }

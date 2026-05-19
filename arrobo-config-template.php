@@ -34,6 +34,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // define( 'ARROBO_CO_DISABLE_COMMENTS', true );
 // define( 'ARROBO_CO_WP_PERFORMANCE', true );
 // define( 'ARROBO_CO_SELF_UPDATE', true );
+// define( 'ARROBO_CO_EMAIL_DELIVERY', true );
 
 // ========================
 // HOSTING
@@ -75,3 +76,26 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // define( 'ARROBO_CO_UPDATE_URL', 'https://arrobo.ec/agency/update.json' );
 // define( 'ARROBO_CO_UPDATE_FREQUENCY', 30 );
+
+// ========================
+// EMAIL DELIVERY (RESEND SMTP)
+// ========================
+// Routes all wp_mail() — including every WooCommerce transactional email —
+// through Resend's SMTP service.
+//
+// Requirements before this works:
+//   1. Create a Resend account and verify this site's sending domain
+//      (add the SPF/DKIM DNS records Resend provides).
+//   2. Generate an API key and paste it below.
+//
+// The module stays inert (default wp_mail) until ARROBO_CO_RESEND_API_KEY
+// is defined. It also stands down automatically if a dedicated SMTP plugin
+// (WP Mail SMTP, FluentSMTP, Post SMTP, etc.) is active on the site.
+//
+// SECURITY: the API key is a per-site secret. Define it ONLY here — never
+// in arrobo-core.php, which is public on GitHub and auto-updated.
+
+// define( 'ARROBO_CO_RESEND_API_KEY', 're_xxxxxxxxxxxxxxxxxxxxxxxxxx' );
+
+// SMTP port: 587 or 2587 (TLS), 465 or 2465 (SSL). Default 587.
+// define( 'ARROBO_CO_RESEND_SMTP_PORT', 587 );
