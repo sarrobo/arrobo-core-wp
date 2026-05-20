@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Arrobo & Co Core
  * Description: MU-Plugin modular — Branding, seguridad y optimización WP by Arrobo & Co
- * Version:     2.0.3
+ * Version:     2.0.4
  * Author:      Arrobo & Co
  * Author URI:  https://arrobo.ec
  *
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // VERSION
 // ========================
 
-define( 'ARROBO_CO_VERSION', '2.0.3' );
+define( 'ARROBO_CO_VERSION', '2.0.4' );
 
 // ========================
 // MODULE SWITCHES
@@ -57,6 +57,9 @@ if ( ! defined( 'ARROBO_CO_SELF_UPDATE' ) ) {
 }
 if ( ! defined( 'ARROBO_CO_EMAIL_DELIVERY' ) ) {
 	define( 'ARROBO_CO_EMAIL_DELIVERY', true );
+}
+if ( ! defined( 'ARROBO_CO_MAIL_LOG' ) ) {
+	define( 'ARROBO_CO_MAIL_LOG', true );
 }
 
 // ========================
@@ -105,6 +108,20 @@ if ( ! defined( 'ARROBO_CO_RESEND_SMTP_PORT' ) ) {
 // NOTE: ARROBO_CO_RESEND_API_KEY is intentionally NOT defined here.
 // It is a per-site secret and must be set only in arrobo-config.php.
 // Without it, the Email Delivery module stays inert (default wp_mail).
+
+// From-address policy for Module 4. Allowed values:
+//   'strict' (default) — force noreply@<domain> on every email.
+//   'woo'              — on sites with WooCommerce active, defer to Woo's
+//                        email settings. Without Woo, falls back to strict.
+if ( ! defined( 'ARROBO_CO_MAIL_FROM_POLICY' ) ) {
+	define( 'ARROBO_CO_MAIL_FROM_POLICY', 'strict' );
+}
+// Max entries kept in the rolling mail log buffer.
+if ( ! defined( 'ARROBO_CO_MAIL_LOG_MAX' ) ) {
+	define( 'ARROBO_CO_MAIL_LOG_MAX', 100 );
+}
+// NOTE: ARROBO_CO_MAIL_REPLY_TO is intentionally NOT defined here.
+// Optional per-site Reply-To address. Set in arrobo-config.php if needed.
 
 // ========================
 // HELPERS
@@ -440,21 +457,75 @@ if ( ARROBO_CO_DYNAMIC_EMAIL ) {
 	}
 
 	/**
-	 * Register sender filters unless WooCommerce is active.
+	 * Inject Reply-To header into wp_mail() attributes when configured.
 	 *
-	 * Store owners control the sender from WooCommerce > Settings > Emails.
-	 * Forcing noreply@ would override that and break the reply-to
-	 * expectation customers have for order emails. Checked on plugins_loaded
-	 * because WooCommerce (a regular plugin) is not yet loaded at MU parse time.
+	 * Removes any pre-existing Reply-To to avoid duplicates. Headers may
+	 * arrive as a CRLF/LF-separated string or as an array — we normalize.
+	 *
+	 * @param array $atts wp_mail() attributes (to, subject, message, headers, attachments).
+	 * @return array
+	 */
+	function arrobo_co_apply_reply_to_header( $atts ) {
+		if ( ! defined( 'ARROBO_CO_MAIL_REPLY_TO' ) || ! ARROBO_CO_MAIL_REPLY_TO ) {
+			return $atts;
+		}
+		$reply_to = sanitize_email( ARROBO_CO_MAIL_REPLY_TO );
+		if ( ! $reply_to ) {
+			return $atts;
+		}
+
+		$headers = isset( $atts['headers'] ) ? $atts['headers'] : array();
+		if ( is_string( $headers ) ) {
+			$headers = preg_split( "/\r?\n/", $headers );
+		}
+		if ( ! is_array( $headers ) ) {
+			$headers = array();
+		}
+
+		// Strip any existing Reply-To to avoid duplicates.
+		$headers = array_filter( $headers, function ( $h ) {
+			return is_string( $h ) && stripos( ltrim( $h ), 'reply-to:' ) !== 0;
+		} );
+		$headers   = array_values( $headers );
+		$headers[] = 'Reply-To: ' . $reply_to;
+
+		$atts['headers'] = $headers;
+		return $atts;
+	}
+
+	/**
+	 * Register sender filters based on the From-address policy.
+	 *
+	 * Policy values:
+	 *   - 'strict' (default): force noreply@<domain> with priority 9999 so
+	 *     the agency policy wins over WooCommerce, plugins, themes, etc.
+	 *   - 'woo': if WooCommerce is active on this site, do not register the
+	 *     From filters (Woo's own email settings take over). Without Woo,
+	 *     still apply noreply@<domain> so we never fall back to WordPress's
+	 *     wordpress@<domain> default.
+	 *
+	 * Reply-To is independent and applies whenever ARROBO_CO_MAIL_REPLY_TO
+	 * is defined, regardless of From policy.
+	 *
+	 * Checked at plugins_loaded so WooCommerce (a regular plugin) is loaded
+	 * by the time we inspect class_exists().
 	 */
 	add_action( 'plugins_loaded', 'arrobo_co_maybe_set_mail_sender', 0 );
 
 	function arrobo_co_maybe_set_mail_sender() {
-		if ( class_exists( 'WooCommerce' ) ) {
-			return;
+		$policy       = defined( 'ARROBO_CO_MAIL_FROM_POLICY' ) ? ARROBO_CO_MAIL_FROM_POLICY : 'strict';
+		$defer_to_woo = ( 'woo' === $policy && class_exists( 'WooCommerce' ) );
+
+		if ( ! $defer_to_woo ) {
+			// Priority 9999 enforces agency policy over later registrations.
+			add_filter( 'wp_mail_from', 'arrobo_co_mail_from', 9999 );
+			add_filter( 'wp_mail_from_name', 'arrobo_co_mail_from_name', 9999 );
 		}
-		add_filter( 'wp_mail_from', 'arrobo_co_mail_from' );
-		add_filter( 'wp_mail_from_name', 'arrobo_co_mail_from_name' );
+
+		// Reply-To is orthogonal to From; applies independently.
+		if ( defined( 'ARROBO_CO_MAIL_REPLY_TO' ) && ARROBO_CO_MAIL_REPLY_TO ) {
+			add_filter( 'wp_mail', 'arrobo_co_apply_reply_to_header', 9999 );
+		}
 	}
 }
 
@@ -1169,4 +1240,258 @@ if ( ARROBO_CO_EMAIL_DELIVERY ) {
 	}
 
 	add_action( 'wp_mail_failed', 'arrobo_co_resend_log_failure' );
+}
+
+// ========================
+// MODULE 12: MAIL LOG (OBSERVABILITY)
+// ========================
+//
+// Captures every wp_mail() attempt as a metadata-only entry into a rolling
+// buffer of N entries. Stored as a WP option (autoload=false). Visible at:
+//   Tools → Arrobo Mail Log
+//
+// Designed for hosts that don't persist PHP error logs (Hostinger Shared,
+// some Kinsta tiers under certain configs). We do NOT log the message body
+// or attachments — password reset keys, order details, and other PII stay
+// out of the database.
+
+if ( ARROBO_CO_MAIL_LOG ) {
+
+	/**
+	 * Track which log entry the in-progress wp_mail() corresponds to.
+	 *
+	 * Uses an entry ID (not array index) so concurrent requests writing to
+	 * the log buffer can't corrupt each other's status updates. The ID is
+	 * stable for the duration of one PHP request.
+	 *
+	 * @param string|null $set ID to set, or null to read.
+	 * @return string|null
+	 */
+	function arrobo_co_mail_log_current_id( $set = null ) {
+		static $id = null;
+		if ( null !== $set ) {
+			$id = $set;
+		}
+		return $id;
+	}
+
+	/**
+	 * @return array
+	 */
+	function arrobo_co_mail_log_get() {
+		$log = get_option( 'arrobo_co_mail_log', array() );
+		return is_array( $log ) ? $log : array();
+	}
+
+	/**
+	 * @param array $log
+	 */
+	function arrobo_co_mail_log_save( $log ) {
+		update_option( 'arrobo_co_mail_log', $log, false );
+	}
+
+	/**
+	 * @return int
+	 */
+	function arrobo_co_mail_log_max() {
+		$max = defined( 'ARROBO_CO_MAIL_LOG_MAX' ) ? (int) ARROBO_CO_MAIL_LOG_MAX : 100;
+		return max( 10, min( 1000, $max ) );
+	}
+
+	/**
+	 * Determine the From address that wp_mail() will end up using.
+	 *
+	 * Either the explicit From: line in headers (parsed manually) or the
+	 * resolved value of the wp_mail_from filter — same lookup wp_mail()
+	 * itself performs. Cheap to call: filters with no side effects.
+	 *
+	 * @param array $atts wp_mail() attributes.
+	 * @return string
+	 */
+	function arrobo_co_mail_log_resolve_from( $atts ) {
+		// Explicit From in headers wins.
+		$headers = isset( $atts['headers'] ) ? $atts['headers'] : array();
+		if ( is_string( $headers ) ) {
+			$headers = preg_split( "/\r?\n/", $headers );
+		}
+		if ( is_array( $headers ) ) {
+			foreach ( $headers as $h ) {
+				if ( is_string( $h ) && stripos( ltrim( $h ), 'from:' ) === 0 ) {
+					return trim( substr( ltrim( $h ), 5 ) );
+				}
+			}
+		}
+
+		// Fall back to wp_mail_from filter.
+		$sitename = wp_parse_url( network_home_url(), PHP_URL_HOST );
+		if ( is_string( $sitename ) && 'www.' === substr( $sitename, 0, 4 ) ) {
+			$sitename = substr( $sitename, 4 );
+		}
+		$default = 'wordpress@' . ( $sitename ? $sitename : 'localhost' );
+		return (string) apply_filters( 'wp_mail_from', $default );
+	}
+
+	/**
+	 * Capture a wp_mail() attempt as a 'pending' entry. Runs at PHP_INT_MAX
+	 * so we see the final attribute state after any other plugin filtering.
+	 *
+	 * @param array $atts
+	 * @return array
+	 */
+	function arrobo_co_mail_log_capture( $atts ) {
+		$log = arrobo_co_mail_log_get();
+		$max = arrobo_co_mail_log_max();
+
+		if ( count( $log ) >= $max ) {
+			$log = array_slice( $log, -( $max - 1 ) );
+		}
+
+		$to = isset( $atts['to'] ) ? $atts['to'] : '';
+		if ( is_array( $to ) ) {
+			$to = implode( ', ', $to );
+		}
+
+		$id    = uniqid( '', true );
+		$entry = array(
+			'id'      => $id,
+			'time'    => time(),
+			'to'      => substr( (string) $to, 0, 200 ),
+			'from'    => substr( arrobo_co_mail_log_resolve_from( $atts ), 0, 200 ),
+			'subject' => substr( (string) ( isset( $atts['subject'] ) ? $atts['subject'] : '' ), 0, 200 ),
+			'status'  => 'pending',
+			'error'   => '',
+		);
+
+		$log[] = $entry;
+		arrobo_co_mail_log_save( $log );
+		arrobo_co_mail_log_current_id( $id );
+
+		return $atts;
+	}
+
+	/**
+	 * Mark the in-progress entry as sent.
+	 *
+	 * @param array $mail_data Mail data array from wp_mail_succeeded.
+	 */
+	function arrobo_co_mail_log_mark_sent( $mail_data ) {
+		$id = arrobo_co_mail_log_current_id();
+		if ( null === $id ) {
+			return;
+		}
+		$log = arrobo_co_mail_log_get();
+		foreach ( $log as $i => $e ) {
+			if ( isset( $e['id'] ) && $e['id'] === $id ) {
+				$log[ $i ]['status'] = 'sent';
+				arrobo_co_mail_log_save( $log );
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Mark the in-progress entry as failed with the error message.
+	 *
+	 * @param WP_Error $error
+	 */
+	function arrobo_co_mail_log_mark_failed( $error ) {
+		$id = arrobo_co_mail_log_current_id();
+		if ( null === $id ) {
+			return;
+		}
+		$msg = is_wp_error( $error ) ? $error->get_error_message() : (string) $error;
+		$log = arrobo_co_mail_log_get();
+		foreach ( $log as $i => $e ) {
+			if ( isset( $e['id'] ) && $e['id'] === $id ) {
+				$log[ $i ]['status'] = 'failed';
+				$log[ $i ]['error']  = substr( $msg, 0, 500 );
+				arrobo_co_mail_log_save( $log );
+				return;
+			}
+		}
+	}
+
+	add_filter( 'wp_mail', 'arrobo_co_mail_log_capture', PHP_INT_MAX );
+	add_action( 'wp_mail_succeeded', 'arrobo_co_mail_log_mark_sent' );
+	add_action( 'wp_mail_failed', 'arrobo_co_mail_log_mark_failed' );
+
+	/**
+	 * Register Tools → Arrobo Mail Log admin page.
+	 */
+	function arrobo_co_mail_log_admin_menu() {
+		add_management_page(
+			'Arrobo Mail Log',
+			'Arrobo Mail Log',
+			'manage_options',
+			'arrobo-mail-log',
+			'arrobo_co_mail_log_render_page'
+		);
+	}
+
+	add_action( 'admin_menu', 'arrobo_co_mail_log_admin_menu' );
+
+	/**
+	 * Render the admin page (list + clear).
+	 */
+	function arrobo_co_mail_log_render_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Insufficient permissions.' ) );
+		}
+
+		// Handle clear action.
+		if ( isset( $_POST['arrobo_co_mail_log_clear'] ) ) {
+			check_admin_referer( 'arrobo_co_mail_log_clear' );
+			update_option( 'arrobo_co_mail_log', array(), false );
+			echo '<div class="notice notice-success is-dismissible"><p>Mail log limpiado.</p></div>';
+		}
+
+		$log = arrobo_co_mail_log_get();
+		// Newest first.
+		$log = array_reverse( $log );
+
+		echo '<div class="wrap">';
+		echo '<h1>Arrobo Mail Log</h1>';
+		printf(
+			'<p>Últimos <strong>%d</strong> envíos (máximo %d). Solo metadatos — sin cuerpo del mensaje.</p>',
+			count( $log ),
+			(int) arrobo_co_mail_log_max()
+		);
+
+		echo '<form method="post" style="margin: 16px 0;">';
+		wp_nonce_field( 'arrobo_co_mail_log_clear' );
+		echo '<button type="submit" name="arrobo_co_mail_log_clear" class="button" onclick="return confirm(\'¿Limpiar todo el log?\')">Limpiar log</button>';
+		echo '</form>';
+
+		if ( empty( $log ) ) {
+			echo '<p><em>Sin registros aún. Envía un correo desde el sitio (reset de contraseña, etc.) para ver entradas aquí.</em></p>';
+			echo '</div>';
+			return;
+		}
+
+		echo '<table class="wp-list-table widefat fixed striped">';
+		echo '<thead><tr>';
+		echo '<th style="width:140px;">Hora</th>';
+		echo '<th style="width:80px;">Estado</th>';
+		echo '<th>De</th>';
+		echo '<th>Para</th>';
+		echo '<th>Asunto</th>';
+		echo '<th>Error</th>';
+		echo '</tr></thead><tbody>';
+
+		foreach ( $log as $entry ) {
+			$status = isset( $entry['status'] ) ? $entry['status'] : 'pending';
+			$color  = 'sent' === $status ? '#16a34a' : ( 'failed' === $status ? '#dc2626' : '#a16207' );
+			printf(
+				'<tr><td>%s</td><td style="color:%s;font-weight:600;">%s</td><td>%s</td><td>%s</td><td>%s</td><td style="color:#dc2626;">%s</td></tr>',
+				esc_html( wp_date( 'Y-m-d H:i:s', isset( $entry['time'] ) ? (int) $entry['time'] : 0 ) ),
+				esc_attr( $color ),
+				esc_html( strtoupper( $status ) ),
+				esc_html( isset( $entry['from'] ) ? $entry['from'] : '' ),
+				esc_html( isset( $entry['to'] ) ? $entry['to'] : '' ),
+				esc_html( isset( $entry['subject'] ) ? $entry['subject'] : '' ),
+				esc_html( isset( $entry['error'] ) ? $entry['error'] : '' )
+			);
+		}
+		echo '</tbody></table></div>';
+	}
 }
