@@ -35,6 +35,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // define( 'ARROBO_CO_WP_PERFORMANCE', true );
 // define( 'ARROBO_CO_SELF_UPDATE', true );
 // define( 'ARROBO_CO_EMAIL_DELIVERY', true );
+// define( 'ARROBO_CO_MAIL_LOG', true );
 
 // ========================
 // HOSTING
@@ -99,3 +100,39 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // SMTP port: 587 or 2587 (TLS), 465 or 2465 (SSL). Default 587.
 // define( 'ARROBO_CO_RESEND_SMTP_PORT', 587 );
+
+// ========================
+// EMAIL POLICY (FROM / REPLY-TO)
+// ========================
+// From-address policy for Module 4:
+//
+//   'strict' (default)
+//     Force noreply@<domain> on every email with priority 9999. Agency-wide
+//     consistency. WooCommerce, plugins, themes cannot override. Use this
+//     for the vast majority of client sites.
+//
+//   'woo'
+//     On sites where WooCommerce is active, defer to Woo's "From" settings
+//     in WooCommerce → Settings → Emails. Use for stores that legitimately
+//     need to control their own sender (e.g., pedidos@cliente.com). Without
+//     WooCommerce, this falls back to strict (never to WP's wordpress@<domain>).
+//
+// define( 'ARROBO_CO_MAIL_FROM_POLICY', 'strict' );
+
+// Optional Reply-To address. Independent of From policy. If defined and
+// non-empty, every wp_mail() gets this Reply-To header. Useful when From
+// is noreply@ but customers still need a reachable mailbox to reply to.
+//
+// define( 'ARROBO_CO_MAIL_REPLY_TO', 'contacto@cliente.com' );
+
+// ========================
+// MAIL LOG (OBSERVABILITY)
+// ========================
+// Captures every wp_mail() attempt (metadata only — no message body or
+// attachments) as a rolling buffer. Visible at:
+//   Tools → Arrobo Mail Log
+//
+// Independent of host log retention. Critical for diagnosing mail issues
+// on hosts that don't persist PHP error logs (Hostinger Shared, etc.).
+
+// define( 'ARROBO_CO_MAIL_LOG_MAX', 100 );

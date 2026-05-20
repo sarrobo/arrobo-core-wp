@@ -1,8 +1,8 @@
 {
-  "version": "2.0.3",
-  "download_url": "https://github.com/sarrobo/arrobo-core-wp/releases/download/v2.0.3/arrobo-core.php",
-  "sha256": "2c7431902513acf559e14cc516a5843b6f7b193353906deb5ff3d5af30f9b52b",
+  "version": "2.0.4",
+  "download_url": "https://github.com/sarrobo/arrobo-core-wp/releases/download/v2.0.4/arrobo-core.php",
+  "sha256": "42690ed61e2e779ece6591de49d120a122fa05390ad0581344ff13c20f317eac",
   "requires_php": "7.4",
   "requires_wp": "6.0",
-  "changelog": "Module 11: Email Delivery via Resend SMTP — routes all wp_mail (incl. every WooCommerce transactional email) through Resend. Inert until ARROBO_CO_RESEND_API_KEY is set; stands down if a dedicated SMTP plugin is active. Module 4 now yields the sender to WooCommerce when active."
+  "changelog": "Module 4: explicit from-policy (ARROBO_CO_MAIL_FROM_POLICY = strict|woo, default strict, priority 9999). Optional Reply-To via ARROBO_CO_MAIL_REPLY_TO. Module 12 (NEW): own mail log — rolling 100-entry buffer of every wp_mail attempt, metadata only, viewable at Tools → Arrobo Mail Log. Independent of host log retention."
 }
