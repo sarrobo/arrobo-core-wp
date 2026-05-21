@@ -107,21 +107,37 @@ if ( ! defined( 'ABSPATH' ) ) {
 // From-address policy for Module 4:
 //
 //   'strict' (default)
-//     Force noreply@<domain> on every email with priority 9999. Agency-wide
-//     consistency. WooCommerce, plugins, themes cannot override. Use this
-//     for the vast majority of client sites.
+//     Force noreply@<domain> on every email with priority 9999. Agency
+//     policy wins over WooCommerce, plugins, themes — single source of
+//     truth. Recommended for most sites.
 //
 //   'woo'
-//     On sites where WooCommerce is active, defer to Woo's "From" settings
-//     in WooCommerce → Settings → Emails. Use for stores that legitimately
-//     need to control their own sender (e.g., pedidos@cliente.com). Without
-//     WooCommerce, this falls back to strict (never to WP's wordpress@<domain>).
+//     Register the same filter at priority 1 (low). Plugins that filter
+//     wp_mail_from at default priority (10), including WooCommerce inside
+//     WC_Email::send(), override us for the emails they control. But for
+//     emails nobody else filters (WP core password reset, comment notices,
+//     etc.) our filter is the fallback default — preventing the silent
+//     wordpress@<domain> default that breaks providers requiring a
+//     verified sender domain (Resend, SES, Postmark).
 //
 // define( 'ARROBO_CO_MAIL_FROM_POLICY', 'strict' );
 
+// Domain used to build the noreply@<domain> From address. Override when
+// the verified email-sending domain is NOT the same as the site domain —
+// common best practice: send transactional mail from a subdomain like
+// updates.example.com to isolate its deliverability reputation from the
+// bare domain.
+//
+// If unset, falls back to the home_url() host with www. stripped.
+//
+// Example: site at https://eltioboris.com with Resend verifying
+// updates.eltioboris.com → set this to 'updates.eltioboris.com'.
+//
+// define( 'ARROBO_CO_MAIL_FROM_DOMAIN', 'updates.cliente.com' );
+
 // Optional Reply-To address. Independent of From policy. If defined and
 // non-empty, every wp_mail() gets this Reply-To header. Useful when From
-// is noreply@ but customers still need a reachable mailbox to reply to.
+// is noreply@<subdomain> but customers still need a reachable mailbox.
 //
 // define( 'ARROBO_CO_MAIL_REPLY_TO', 'contacto@cliente.com' );
 

@@ -1,8 +1,8 @@
 {
-  "version": "2.0.4",
-  "download_url": "https://github.com/sarrobo/arrobo-core-wp/releases/download/v2.0.4/arrobo-core.php",
-  "sha256": "42690ed61e2e779ece6591de49d120a122fa05390ad0581344ff13c20f317eac",
+  "version": "2.0.5",
+  "download_url": "https://github.com/sarrobo/arrobo-core-wp/releases/download/v2.0.5/arrobo-core.php",
+  "sha256": "8e735524b532ce6e1f45142c81e2b9e4abe849d953d49d672a3b4de6aab700b9",
   "requires_php": "7.4",
   "requires_wp": "6.0",
-  "changelog": "Module 4: explicit from-policy (ARROBO_CO_MAIL_FROM_POLICY = strict|woo, default strict, priority 9999). Optional Reply-To via ARROBO_CO_MAIL_REPLY_TO. Module 12 (NEW): own mail log — rolling 100-entry buffer of every wp_mail attempt, metadata only, viewable at Tools → Arrobo Mail Log. Independent of host log retention."
+  "changelog": "Module 4: new ARROBO_CO_MAIL_FROM_DOMAIN constant to override the noreply@<domain> domain — for sites whose verified email-sending domain is a subdomain (best practice for transactional mail). Policy 'woo' redesigned: registers at priority 1 instead of bailing out, so WP core emails (password reset, etc.) get noreply@ as fallback instead of WP's wordpress@<domain> default that breaks Resend and other providers requiring a verified sender."
 }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Arrobo & Co Core
  * Description: MU-Plugin modular — Branding, seguridad y optimización WP by Arrobo & Co
- * Version:     2.0.4
+ * Version:     2.0.5
  * Author:      Arrobo & Co
  * Author URI:  https://arrobo.ec
  *
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // VERSION
 // ========================
 
-define( 'ARROBO_CO_VERSION', '2.0.4' );
+define( 'ARROBO_CO_VERSION', '2.0.5' );
 
 // ========================
 // MODULE SWITCHES
@@ -122,6 +122,13 @@ if ( ! defined( 'ARROBO_CO_MAIL_LOG_MAX' ) ) {
 }
 // NOTE: ARROBO_CO_MAIL_REPLY_TO is intentionally NOT defined here.
 // Optional per-site Reply-To address. Set in arrobo-config.php if needed.
+
+// NOTE: ARROBO_CO_MAIL_FROM_DOMAIN is intentionally NOT defined here.
+// Optional override for the domain part of the noreply@<domain> From.
+// Use when the verified email-sending domain in Resend (or other provider)
+// is NOT the same as home_url() — common when using a subdomain like
+// updates.example.com for transactional mail (deliverability best practice).
+// If unset, falls back to the home_url() host with www. stripped.
 
 // ========================
 // HELPERS
@@ -437,14 +444,27 @@ if ( ARROBO_CO_ADMIN_FOOTER ) {
 if ( ARROBO_CO_DYNAMIC_EMAIL ) {
 
 	/**
-	 * Set the "From" email address dynamically based on site domain.
+	 * Build the "noreply@" From address.
+	 *
+	 * Priority of resolution:
+	 *   1. ARROBO_CO_MAIL_FROM_DOMAIN (explicit per-site config) — used when
+	 *      the verified email-sending domain differs from the site domain
+	 *      (e.g., updates.example.com verified in Resend while the site lives
+	 *      at example.com).
+	 *   2. home_url() host with www. stripped — same shape WordPress uses
+	 *      for its own wordpress@<domain> default.
 	 *
 	 * @return string
 	 */
 	function arrobo_co_mail_from() {
-		$parsed = wp_parse_url( home_url() );
-		$domain = isset( $parsed['host'] ) ? $parsed['host'] : 'localhost';
-		return 'noreply@' . $domain;
+		if ( defined( 'ARROBO_CO_MAIL_FROM_DOMAIN' ) && ARROBO_CO_MAIL_FROM_DOMAIN ) {
+			return 'noreply@' . ARROBO_CO_MAIL_FROM_DOMAIN;
+		}
+		$sitename = wp_parse_url( network_home_url(), PHP_URL_HOST );
+		if ( is_string( $sitename ) && 'www.' === substr( $sitename, 0, 4 ) ) {
+			$sitename = substr( $sitename, 4 );
+		}
+		return 'noreply@' . ( $sitename ? $sitename : 'localhost' );
 	}
 
 	/**
@@ -496,31 +516,37 @@ if ( ARROBO_CO_DYNAMIC_EMAIL ) {
 	/**
 	 * Register sender filters based on the From-address policy.
 	 *
-	 * Policy values:
-	 *   - 'strict' (default): force noreply@<domain> with priority 9999 so
-	 *     the agency policy wins over WooCommerce, plugins, themes, etc.
-	 *   - 'woo': if WooCommerce is active on this site, do not register the
-	 *     From filters (Woo's own email settings take over). Without Woo,
-	 *     still apply noreply@<domain> so we never fall back to WordPress's
-	 *     wordpress@<domain> default.
+	 * Both policies register the filter — they only differ in PRIORITY,
+	 * which determines whether we win or lose against other plugins.
+	 *
+	 *   'strict' (default): priority 9999. We override WooCommerce, contact
+	 *      form plugins, themes — anything that registers a wp_mail_from
+	 *      filter. Agency policy is enforced. Single source of truth.
+	 *
+	 *   'woo': priority 1. We act as the LOW-PRIORITY DEFAULT. Other plugins
+	 *      (notably WooCommerce, which adds its filter inside WC_Email::send()
+	 *      at default priority 10) override us for the emails they control.
+	 *      But for emails NOBODY ELSE filters — WordPress core's password
+	 *      reset, password-change confirmation, comment notifications, etc. —
+	 *      our filter is the last one to run, so they get noreply@<domain>
+	 *      instead of WordPress's wordpress@<domain> default. This eliminates
+	 *      the silent fallback that breaks providers requiring a verified
+	 *      sender domain (Resend, SES, Postmark, etc.).
 	 *
 	 * Reply-To is independent and applies whenever ARROBO_CO_MAIL_REPLY_TO
 	 * is defined, regardless of From policy.
 	 *
-	 * Checked at plugins_loaded so WooCommerce (a regular plugin) is loaded
-	 * by the time we inspect class_exists().
+	 * Registered on plugins_loaded only to match the historical hook point;
+	 * the actual priority decision is policy-driven, not Woo-detection-driven.
 	 */
 	add_action( 'plugins_loaded', 'arrobo_co_maybe_set_mail_sender', 0 );
 
 	function arrobo_co_maybe_set_mail_sender() {
-		$policy       = defined( 'ARROBO_CO_MAIL_FROM_POLICY' ) ? ARROBO_CO_MAIL_FROM_POLICY : 'strict';
-		$defer_to_woo = ( 'woo' === $policy && class_exists( 'WooCommerce' ) );
+		$policy   = defined( 'ARROBO_CO_MAIL_FROM_POLICY' ) ? ARROBO_CO_MAIL_FROM_POLICY : 'strict';
+		$priority = ( 'woo' === $policy ) ? 1 : 9999;
 
-		if ( ! $defer_to_woo ) {
-			// Priority 9999 enforces agency policy over later registrations.
-			add_filter( 'wp_mail_from', 'arrobo_co_mail_from', 9999 );
-			add_filter( 'wp_mail_from_name', 'arrobo_co_mail_from_name', 9999 );
-		}
+		add_filter( 'wp_mail_from', 'arrobo_co_mail_from', $priority );
+		add_filter( 'wp_mail_from_name', 'arrobo_co_mail_from_name', $priority );
 
 		// Reply-To is orthogonal to From; applies independently.
 		if ( defined( 'ARROBO_CO_MAIL_REPLY_TO' ) && ARROBO_CO_MAIL_REPLY_TO ) {
